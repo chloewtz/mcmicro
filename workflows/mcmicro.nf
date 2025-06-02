@@ -38,7 +38,7 @@ workflow MCMICRO {
     ch_versions = Channel.empty()
     ch_multiqc_files = Channel.empty()
     //
-    // MODULE: BASICPY 
+    // MODULE: BASICPY
     //
     if (params.illumination == 'basicpy') {
         ch_samplesheet
