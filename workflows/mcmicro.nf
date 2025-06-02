@@ -37,79 +37,95 @@ workflow MCMICRO {
 
     ch_versions = Channel.empty()
     ch_multiqc_files = Channel.empty()
-    //
-    // MODULE: BASICPY
-    //
-    if (params.illumination == 'basicpy') {
+    def isOmeTiff = params.input_image?.toString()?.toLowerCase()?.endsWith('.ome.tiff') || params.input_image?.toString()?.toLowerCase()?.endsWith('.ome.tif')
+
+
+    // Validation conditionnelle des paramètres
+    if (!isOmeTiff) {
+        if (!params.marker_sheet) {
+            error "Parameter 'marker_sheet' is required when input is not an OME-TIFF file."
+        }
+    } else {
+        // Optionnel : log que marker_sheet est ignoré si présent
+        if (params.marker_sheet) {
+            log.warn "Parameter 'marker_sheet' is ignored because input is an OME-TIFF file."
+        }
+    }
+
+    if(!isOmeTiff){
+        //
+        // MODULE: BASICPY
+        //
+        if (params.illumination == 'basicpy') {
+            ch_samplesheet
+                .map{ meta, image_tiles, dfp, ffp ->
+                    [meta.subMap('id', 'cycle_number'), image_tiles]
+                }
+                .dump(tag: 'BASICPY in')
+                | BASICPY
+            ch_versions = ch_versions.mix(BASICPY.out.versions)
+            ch_samplesheet = ch_samplesheet
+                .map{ meta, image_tiles, dfp, ffp ->
+                    [meta.subMap('id', 'cycle_number'), image_tiles]
+                }
+                .join(BASICPY.out.profiles)
+                .dump(tag: 'ch_samplesheet (after BASICPY)')
+        }
+
         ch_samplesheet
             .map{ meta, image_tiles, dfp, ffp ->
-                [meta.subMap('id', 'cycle_number'), image_tiles]
+                [[id: meta.id], [meta.cycle_number, image_tiles, dfp, ffp]]
             }
-            .dump(tag: 'BASICPY in')
-            | BASICPY
-        ch_versions = ch_versions.mix(BASICPY.out.versions)
-        ch_samplesheet = ch_samplesheet
-            .map{ meta, image_tiles, dfp, ffp ->
-                [meta.subMap('id', 'cycle_number'), image_tiles]
+            // FIXME: pass groupTuple size: from samplesheet cycle count
+            .groupTuple(sort: { a, b -> a[0] <=> b[0] })
+            .map{ meta, cycles -> [meta, *cycles.collect{ it[1..-1] }.transpose()]}
+            .dump(tag: 'ASHLAR in')
+            // flatten() handles list of empty-lists, turning it into a single empty list.
+            .multiMap{ meta, images, dfps, ffps ->
+                images: [meta, images]
+                dfps: dfps.flatten()
+                ffps: ffps.flatten()
             }
-            .join(BASICPY.out.profiles)
-            .dump(tag: 'ch_samplesheet (after BASICPY)')
-    }
+            | ASHLAR
+        ch_versions = ch_versions.mix(ASHLAR.out.versions)
 
-    ch_samplesheet
-        .map{ meta, image_tiles, dfp, ffp ->
-            [[id: meta.id], [meta.cycle_number, image_tiles, dfp, ffp]]
+        // Run Background Correction
+        if (params.backsub) {
+            ch_backsub_markers = ch_markersheet
+                .map { ['channel_number,cycle_number,marker_name,exposure,background,remove',
+                    it.collect{ channel_number, cycle_number, marker_name, _1, _2, _3, exposure, background, remove ->
+                        channel_number + "," + cycle_number + "," + marker_name + "," + exposure + "," + background + "," + remove}] }
+                .flatten()
+                .map { it.replace('[]', '') }
+                .collectFile(name: 'markers_backsub.csv', sort: false, newLine: true)
+
+            ASHLAR.out.tif
+                .combine(ch_backsub_markers)
+                .dump(tag: 'BACKSUB IN')
+                .multiMap{ meta, image, marker ->
+                    image: [meta, image]
+                    markers: [meta, marker]
+                }
+                | BACKSUB
+
+            post_registration = BACKSUB.out.backsub_tif
+            ch_versions = ch_versions.mix(BACKSUB.out.versions)
+        } else {
+            post_registration = ASHLAR.out.tif
         }
-        // FIXME: pass groupTuple size: from samplesheet cycle count
-        .groupTuple(sort: { a, b -> a[0] <=> b[0] })
-        .map{ meta, cycles -> [meta, *cycles.collect{ it[1..-1] }.transpose()]}
-        .dump(tag: 'ASHLAR in')
-        // flatten() handles list of empty-lists, turning it into a single empty list.
-        .multiMap{ meta, images, dfps, ffps ->
-            images: [meta, images]
-            dfps: dfps.flatten()
-            ffps: ffps.flatten()
+
+        // Run Coreograph
+        if (params.tma_dearray) {
+            COREOGRAPH(post_registration)
+            COREOGRAPH.out.cores
+                .transpose()
+                .map { meta, img -> [[id: meta.id + '_' + img.fileName.toString().tokenize('.')[0]], img]}
+                .set { ch_segmentation_input }
+        } else {
+            ch_segmentation_input = post_registration
         }
-        | ASHLAR
-    ch_versions = ch_versions.mix(ASHLAR.out.versions)
-
-    // Run Background Correction
-    if (params.backsub) {
-        ch_backsub_markers = ch_markersheet
-            .map { ['channel_number,cycle_number,marker_name,exposure,background,remove',
-                it.collect{ channel_number, cycle_number, marker_name, _1, _2, _3, exposure, background, remove ->
-                    channel_number + "," + cycle_number + "," + marker_name + "," + exposure + "," + background + "," + remove}] }
-            .flatten()
-            .map { it.replace('[]', '') }
-            .collectFile(name: 'markers_backsub.csv', sort: false, newLine: true)
-
-        ASHLAR.out.tif
-            .combine(ch_backsub_markers)
-            .dump(tag: 'BACKSUB IN')
-            .multiMap{ meta, image, marker ->
-                image: [meta, image]
-                markers: [meta, marker]
-            }
-            | BACKSUB
-
-        post_registration = BACKSUB.out.backsub_tif
-        ch_versions = ch_versions.mix(BACKSUB.out.versions)
-    } else {
-        post_registration = ASHLAR.out.tif
     }
-
-    // Run Coreograph
-    if (params.tma_dearray) {
-        COREOGRAPH(post_registration)
-        COREOGRAPH.out.cores
-            .transpose()
-            .map { meta, img -> [[id: meta.id + '_' + img.fileName.toString().tokenize('.')[0]], img]}
-            .set { ch_segmentation_input }
-    } else {
-        ch_segmentation_input = post_registration
-    }
-
-    // Run Segmentation
+    ch_segmentation_input = Channel.fromPath(params.input_image)    // Run Segmentation
 
     ch_masks = Channel.empty()
 
