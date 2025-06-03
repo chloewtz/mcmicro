@@ -67,11 +67,6 @@ workflow PIPELINE_INITIALISATION {
     )
 
     //
-    // Custom validation for pipeline parameters
-    //
-    validateInputParameters()
-
-    //
     // Create channel from input file provided through params.input_cycle or .input_sample
     //
     if (input_cycle) {
@@ -161,26 +156,6 @@ workflow PIPELINE_COMPLETION {
     FUNCTIONS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
-//
-// Check and validate pipeline parameters
-//
-def validateInputParameters() {
-
-    if (params.input_sample && params.input_cycle) {
-        error "You must specify EITHER input_sample OR input_cycle, but not both."
-    } else if(!params.input_sample && !params.input_cycle) {
-        error "You must specify either input_sample or input_cycle."
-    }
-
-    if (params.cellpose_model && !segmentation_list.contains('cellpose')) {
-        error "You can only provide a cellpose model if you have selected cellpose as one of your segmentation methods"
-    }
-
-    if (params.tma_dearray && !params.pixel_size) {
-        error "You must also provide the pixel_size parameter (image pixel width in microns) when enabling tma_dearray."
-    }
-}
-
 //
 // Validate channels from input samplesheet
 //
