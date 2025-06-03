@@ -81,10 +81,14 @@ workflow PIPELINE_INITIALISATION {
                 ]
             }
             .dump(tag: 'ch_samplesheet (cycle)')
-    } else if (input_sample) {
+    }
+    if (input_sample) {
         ch_samplesheet = Channel.fromList(samplesheetToList(params.input_sample, "${projectDir}/assets/schema_input_sample.json"))
             .flatMap { expandSampleRow(it) }
             .dump(tag: 'ch_samplesheet (sample)')
+    }
+    else {
+        log.warn "Aucune table fournie (input_sample ou input_cycle) : attention, certaines étapes peuvent échouer."
     }
 
     ch_markersheet = Channel.fromList(samplesheetToList(params.marker_sheet, "${projectDir}/assets/schema_marker.json"))
