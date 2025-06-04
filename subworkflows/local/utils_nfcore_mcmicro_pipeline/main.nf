@@ -82,13 +82,20 @@ workflow PIPELINE_INITIALISATION {
             }
             .dump(tag: 'ch_samplesheet (cycle)')
     }
-    if (input_sample) {
+    else if (input_sample) {
         ch_samplesheet = Channel.fromList(samplesheetToList(params.input_sample, "${projectDir}/assets/schema_input_sample.json"))
             .flatMap { expandSampleRow(it) }
             .dump(tag: 'ch_samplesheet (sample)')
     }
-    else {
-        log.warn "Aucune table fournie (input_sample ou input_cycle) : attention, certaines étapes peuvent échouer."
+    
+    else if (params.input_image) {
+        ch_samplesheet = Channel.of([
+            [ "sample1", params.input_image ]
+        ])
+        log.warn "Using direct image input: ${params.input_image}"
+    } else {
+        log.error "You must specify either input_sample or input_cycle or input_image."
+        exit 1
     }
 
     ch_markersheet = Channel.fromList(samplesheetToList(params.marker_sheet, "${projectDir}/assets/schema_marker.json"))
