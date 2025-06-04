@@ -30,8 +30,8 @@ include { MCQUANT                } from '../modules/nf-core/mcquant/main'
 workflow MCMICRO {
 
     take:
-    ch_samplesheet // channel: samplesheet read in from --input_cycle or --input_sample
-    ch_markersheet // channel: markersheet read in from --marker_sheet
+    ch_samplesheet = Channel.empty()
+    ch_markersheet = Channel.empty()
 
     main:
 
