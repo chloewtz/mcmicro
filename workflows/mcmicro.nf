@@ -32,6 +32,7 @@ workflow MCMICRO {
     take:
     ch_samplesheet = Channel.empty()
     ch_markersheet = Channel.empty()
+    ch_sample_image
 
     main:
 
@@ -39,6 +40,10 @@ workflow MCMICRO {
     ch_multiqc_files = Channel.empty()
     def isOmeTiff = params.input_image?.toString()?.toLowerCase()?.endsWith('.ome.tiff') || params.input_image?.toString()?.toLowerCase()?.endsWith('.ome.tif')
 
+    // Nouvelle condition : autoriser sample_image en entrée sans input_sample ou input_cycle
+    if (!params.input_sample && !params.input_cycle && !params.sample_image) {
+        error "You must specify either --input_sample, --input_cycle or --sample_image"
+    }
 
     // Validation conditionnelle des paramètres
     if (!isOmeTiff) {
@@ -53,9 +58,7 @@ workflow MCMICRO {
     }
 
     if(!isOmeTiff){
-        //
         // MODULE: BASICPY
-        //
         if (params.illumination == 'basicpy') {
             ch_samplesheet
                 .map{ meta, image_tiles, dfp, ffp ->
@@ -76,11 +79,9 @@ workflow MCMICRO {
             .map{ meta, image_tiles, dfp, ffp ->
                 [[id: meta.id], [meta.cycle_number, image_tiles, dfp, ffp]]
             }
-            // FIXME: pass groupTuple size: from samplesheet cycle count
             .groupTuple(sort: { a, b -> a[0] <=> b[0] })
             .map{ meta, cycles -> [meta, *cycles.collect{ it[1..-1] }.transpose()]}
             .dump(tag: 'ASHLAR in')
-            // flatten() handles list of empty-lists, turning it into a single empty list.
             .multiMap{ meta, images, dfps, ffps ->
                 images: [meta, images]
                 dfps: dfps.flatten()
@@ -89,7 +90,6 @@ workflow MCMICRO {
             | ASHLAR
         ch_versions = ch_versions.mix(ASHLAR.out.versions)
 
-        // Run Background Correction
         if (params.backsub) {
             ch_backsub_markers = ch_markersheet
                 .map { ['channel_number,cycle_number,marker_name,exposure,background,remove',
@@ -114,7 +114,6 @@ workflow MCMICRO {
             post_registration = ASHLAR.out.tif
         }
 
-        // Run Coreograph
         if (params.tma_dearray) {
             COREOGRAPH(post_registration)
             COREOGRAPH.out.cores
@@ -125,7 +124,9 @@ workflow MCMICRO {
             ch_segmentation_input = post_registration
         }
     }
-    ch_segmentation_input = Channel.fromPath(params.input_image)    // Run Segmentation
+
+    // Remplacer input_image par sample_image comme source d'entrée directe
+    ch_segmentation_input = Channel.fromPath(params.sample_image, checkIfExists: true)
 
     ch_masks = Channel.empty()
 
@@ -147,9 +148,6 @@ workflow MCMICRO {
     ch_masks = ch_masks.mix(CELLPOSE.out.mask)
     ch_versions = ch_versions.mix(CELLPOSE.out.versions)
 
-    // Run Quantification
-
-    // Generate markers.csv for mcquant with just the marker_name column.
     ch_mcquant_markers = ch_markersheet
         .flatMap{
             ['marker_name'] +
@@ -172,15 +170,6 @@ workflow MCMICRO {
 
     ch_versions = ch_versions.mix(MCQUANT.out.versions)
 
-    /*
-    // // Run Reporting
-    SCIMAP_MCMICRO(MCQUANT.out.csv)
-    ch_versions = ch_versions.mix(SCIMAP_MCMICRO.out.versions)
-    */
-
-    //
-    // Collate and save software versions
-    //
     softwareVersionsToYAML(ch_versions)
         .collectFile(
             storeDir: "${params.outdir}/pipeline_info",
@@ -189,9 +178,6 @@ workflow MCMICRO {
             newLine: true
         ).set { ch_collated_versions }
 
-    //
-    // MODULE: MultiQC
-    //
     ch_multiqc_config        = Channel.fromPath(
         "$projectDir/assets/multiqc_config.yml", checkIfExists: true)
     ch_multiqc_custom_config = params.multiqc_config ?
@@ -229,9 +215,8 @@ workflow MCMICRO {
         []
     )
 
-    emit:multiqc_report = MULTIQC.out.report.toList() // channel: /path/to/multiqc_report.html
-    versions       = ch_versions                 // channel: [ path(versions.yml) ]
-
+    emit:multiqc_report = MULTIQC.out.report.toList()
+    versions       = ch_versions
 }
 
 /*
