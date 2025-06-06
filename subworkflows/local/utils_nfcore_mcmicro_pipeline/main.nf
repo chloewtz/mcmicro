@@ -99,7 +99,7 @@ workflow PIPELINE_INITIALISATION {
         exit 1
     }
 
-    ch_markersheet = Channel.fromList(samplesheetToList(params.marker_sheet, "${projectDir}/assets/schema_marker.json"))
+    ch_markersheet = Channel.fromList(samplesheetToList(marker_sheet, "${projectDir}/assets/schema_marker.json"))
         .toList()
         .map{ validateInputMarkersheet(it) }
         .dump(tag: 'ch_markersheet')
