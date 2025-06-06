@@ -90,10 +90,18 @@ workflow PIPELINE_INITIALISATION {
     }
 
     else if (params.input_image) {
+        // Créer une structure compatible attendue par la suite du pipeline
+        def sample = "sample1"
+        def cycle_number = 1
+        def channel_count = 1
+        def image_tiles = []  // ou null si non applicable
+        def dfp = null
+        def ffp = null
+
         ch_samplesheet = Channel.of([
-            [ "sample1", params.input_image ]
+            [[id: sample, cycle_number: cycle_number, channel_count: channel_count], image_tiles, dfp, ffp]
         ])
-        log.warn "Using direct image input: ${params.input_image}"
+            log.warn "Using direct image input: ${params.input_image}"
     } else {
         log.error "You must specify either input_sample or input_cycle or sample_image."
         exit 1
