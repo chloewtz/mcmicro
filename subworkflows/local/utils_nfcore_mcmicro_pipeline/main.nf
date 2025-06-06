@@ -66,6 +66,11 @@ workflow PIPELINE_INITIALISATION {
         nextflow_cli_args
     )
 
+
+    log.info "input_cycle: ${input_cycle} (class: ${input_cycle?.getClass()})"
+    log.info "input_sample: ${input_sample} (class: ${input_sample?.getClass()})"
+    log.info "marker_sheet: ${marker_sheet} (class: ${marker_sheet?.getClass()})"
+
     //
     // Create channel from input file provided through params.input_cycle or .input_sample or .input_image
     //
