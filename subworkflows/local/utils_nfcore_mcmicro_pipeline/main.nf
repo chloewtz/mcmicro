@@ -67,12 +67,11 @@ workflow PIPELINE_INITIALISATION {
     )
 
     //
-    // Create channel from input file provided through params.input_cycle or .input_sample
+    // Create channel from input file provided through params.input_cycle or .input_sample or .input_image
     //
-    if (input_cycle) {
-        ch_samplesheet = Channel.fromList(samplesheetToList(params.input_cycle, "${projectDir}/assets/schema_input_cycle.json"))
-            .map{
-                sample, cycle_number, channel_count, image_tiles, dfp, ffp ->
+    if (input_cycle && file(input_cycle).exists()) {
+        ch_samplesheet = Channel.fromList(samplesheetToList(input_cycle, "${projectDir}/assets/schema_input_cycle.json"))
+            .map{ sample, cycle_number, channel_count, image_tiles, dfp, ffp ->
                 [
                     [id: sample, cycle_number: cycle_number, channel_count: channel_count],
                     image_tiles,
@@ -82,14 +81,12 @@ workflow PIPELINE_INITIALISATION {
             }
             .dump(tag: 'ch_samplesheet (cycle)')
     }
-    else if (input_sample) {
-        def inputSample = params.input_sample ?: ""
-        ch_samplesheet = Channel.fromList(samplesheetToList(inputSample as CharSequence, "${projectDir}/assets/schema_input_sample.json" as CharSequence))
+    else if (input_sample && input_sample.trim() && file(input_sample).exists()) {
+        ch_samplesheet = Channel.fromList(samplesheetToList(input_sample, "${projectDir}/assets/schema_input_sample.json"))
             .flatMap { expandSampleRow(it) }
             .dump(tag: 'ch_samplesheet (sample)')
     }
-
-    else if (params.input_image) {
+    else if (params.input_image && params.input_image.trim()) {
         // Créer une structure compatible attendue par la suite du pipeline
         def sample = "sample1"
         def cycle_number = 1
@@ -101,11 +98,13 @@ workflow PIPELINE_INITIALISATION {
         ch_samplesheet = Channel.of([
             [[id: sample, cycle_number: cycle_number, channel_count: channel_count], image_tiles, dfp, ffp]
         ])
-            log.warn "Using direct image input: ${params.input_image}"
-    } else {
-        log.error "You must specify either input_sample or input_cycle or sample_image."
+        log.warn "Using direct image input: ${params.input_image}"
+    }
+    else {
+        log.error "You must specify a valid input_cycle, input_sample, or input_image parameter with an existing file."
         exit 1
     }
+
 
     ch_markersheet = Channel.fromList(samplesheetToList(marker_sheet, "${projectDir}/assets/schema_marker.json"))
         .toList()
